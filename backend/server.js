@@ -1,5 +1,10 @@
 const express = require('express');
 const cors = require('cors');
+const dotenv = require('dotenv');
+const { searchCompanyAndScore } = require('./services/googlePlacesService');
+const { generateMarketData } = require('./services/marketService');
+
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -14,43 +19,54 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/market', (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      timestamp: new Date().toISOString(),
-      source: 'Mock Market Data',
-      note: 'Demo Daten vom Backend',
-      power: {
-        current: 95.58,
-        previous: 111.11,
-        delta: -15.53,
-        direction: 'down',
-        salesHint: 'Stromtrend fällt → guter Einstieg für Neuansätze',
-        label: 'Stromtrend',
-        periodLabel: 'Ø letzte 7 Tage',
-        comparisonLabel: 'Ø 7 Tage davor',
-        isAvailable: true,
-      },
-    },
-  });
+app.get('/market', async (req, res) => {
+  try {
+    const data = await generateMarketData();
+    res.json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    console.error('Market error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Marktentwicklung konnte nicht geladen werden.',
+      details: error.message,
+    });
+  }
 });
 
-app.post('/analyze-company', (req, res) => {
-  const { company, plz, branch } = req.body;
+app.post('/analyze-company', async (req, res) => {
+  try {
+    const { company, plz, branch } = req.body || {};
 
-  res.json({
-    success: true,
-    data: {
+    if (!company || !plz) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bitte Firmenname und PLZ angeben.',
+      });
+    }
+
+    const result = await searchCompanyAndScore({
       company,
       plz,
-      branch,
-      score: 78,
-      recommendation: 'Guter Zielkunde für Bündelung und Strukturierung',
-    },
-  });
+      branch: branch || '',
+    });
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error('Analyze error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Interner Fehler bei der Unternehmensanalyse.',
+      details: error.message,
+    });
+  }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend läuft auf Port ${PORT}`);
 });
