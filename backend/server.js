@@ -3,6 +3,8 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const { searchCompanyAndScore } = require('./services/googlePlacesService');
 const { generateMarketData } = require('./services/marketService');
+const { buildGrundversorgerHint } = require('./services/grundversorgerService');
+const { buildPotentialAnalysis } = require('./services/potentialAnalysisService');
 
 dotenv.config();
 
@@ -38,7 +40,18 @@ app.get('/market', async (req, res) => {
 
 app.post('/analyze-company', async (req, res) => {
   try {
-    const { company, plz, branch } = req.body || {};
+    const {
+      company,
+      plz,
+      city,
+      branch,
+      siteCountCategory,
+      locationType,
+      companySize,
+      decisionStructure,
+      energyNeed,
+      sustainabilityInterest,
+    } = req.body || {};
 
     if (!company || !plz) {
       return res.status(400).json({
@@ -47,15 +60,81 @@ app.post('/analyze-company', async (req, res) => {
       });
     }
 
-    const result = await searchCompanyAndScore({
-      company,
+    let companyLookup = {
+      found: false,
+      companyInput: company,
+      matchedCompany: '',
+      address: '',
+      category: '',
+      website: '',
+      phone: '',
+      rating: null,
+      userRatingsTotal: null,
+    };
+
+    try {
+      const lookupResult = await searchCompanyAndScore({
+        company,
+        plz,
+        branch: branch || '',
+      });
+
+      companyLookup = {
+        found: lookupResult?.found === true,
+        companyInput: lookupResult?.companyInput || company,
+        matchedCompany: lookupResult?.matchedCompany || '',
+        address: lookupResult?.address || '',
+        category: lookupResult?.category || '',
+        website: lookupResult?.website || '',
+        phone: lookupResult?.phone || '',
+        rating: lookupResult?.rating ?? null,
+        userRatingsTotal: lookupResult?.userRatingsTotal ?? null,
+      };
+    } catch (lookupError) {
+      console.error('Lookup warning:', lookupError.message);
+    }
+
+    const grundversorgerHint = buildGrundversorgerHint({
       plz,
-      branch: branch || '',
+      city,
+      address: companyLookup.address,
+    });
+
+    const heuristic = buildPotentialAnalysis({
+      input: {
+        company,
+        plz,
+        city,
+        branch,
+        siteCountCategory,
+        locationType,
+        companySize,
+        decisionStructure,
+        energyNeed,
+        sustainabilityInterest,
+      },
+      companyLookup,
+      grundversorgerHint,
     });
 
     return res.json({
       success: true,
-      data: result,
+      data: {
+        input: {
+          company,
+          plz,
+          city: city || '',
+          branch: branch || '',
+          siteCountCategory: siteCountCategory || 'unbekannt',
+          locationType: locationType || 'unbekannt',
+          companySize: companySize || 'unbekannt',
+          decisionStructure: decisionStructure || 'unbekannt',
+          energyNeed: energyNeed || 'unbekannt',
+          sustainabilityInterest: sustainabilityInterest || 'unbekannt',
+        },
+        companyLookup,
+        heuristic,
+      },
     });
   } catch (error) {
     console.error('Analyze error:', error);
